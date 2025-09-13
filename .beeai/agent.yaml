@@ -1,0 +1,33 @@
+# BeeAI Agent Metadata
+apiVersion: v1
+kind: Agent
+metadata:
+  name: threat-hunter-test
+  version: 1.0.0
+  description: BeeAI Threat Hunter Test Agent
+  labels:
+    framework: beeai
+    type: test-agent
+    
+spec:
+  image:
+    dockerfile: Dockerfile
+    context: .
+    
+  agent:
+    name: "Threat Hunter Test Agent"
+    version: "1.0.0"
+    description: "Test agent for BeeAI platform integration verification"
+    
+  runtime:
+    entrypoint: "beeai_threat_hunter.agents.test_agent:serve"
+    port: 8000
+    
+  skills:
+    - id: "threat_hunter_test"
+      name: "System Testing and Integration"
+      description: "System health checks and integration testing"
+      examples:
+        - "test connection"
+        - "check status"
+        - "help"

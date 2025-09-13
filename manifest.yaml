@@ -1,0 +1,6 @@
+name: threat-hunter-test
+version: 1.0.0
+description: BeeAI Threat Hunter Test Agent
+dockerfile: Dockerfile
+port: 8000
+entrypoint: beeai_threat_hunter.agents.test_agent:serve

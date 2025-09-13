@@ -1,0 +1,31 @@
+{
+  "name": "threat-hunter-test",
+  "version": "1.0.0",
+  "description": "BeeAI Threat Hunter Test Agent for platform integration testing",
+  "author": "BeeAI Labs Team",
+  "license": "Apache 2.0",
+  "framework": "beeai",
+  "type": "agent",
+  "dockerfile": "Dockerfile",
+  "entrypoint": "beeai_threat_hunter.agents.test_agent:serve",
+  "port": 8000,
+  "agent": {
+    "name": "Threat Hunter Test Agent",
+    "version": "1.0.0",
+    "description": "Test agent for BeeAI platform integration verification. Provides system health checks, connection tests, and configuration validation."
+  },
+  "skills": [
+    {
+      "id": "threat_hunter_test",
+      "name": "System Testing and Integration", 
+      "description": "System health checks, connection tests, and configuration validation",
+      "tags": ["testing", "integration", "system-health"],
+      "examples": [
+        "test connection",
+        "check system status",
+        "validate mindsdb configuration", 
+        "show help"
+      ]
+    }
+  ]
+}
