@@ -1,0 +1,3031 @@
+# Agent Details
+Source: https://docs.beeai.dev/build-agents/agent-details
+
+Configure how your agent appears and behaves in the BeeAI Platform UI
+
+The BeeAI Platform displays agents in both the GUI and CLI. When building your agent, you can configure certain attributes that affect how it appears and behaves in the user interface. The `@server.agent` decorator accepts an `AgentDetails` parameter that controls the visual representation and behavior in the UI.
+
+You can customize various aspects of your agent's presentation, such as:
+
+* The type of user interface the agent uses
+* Metadata about tools the agent provides
+* Author and contributor information
+* License and source code details
+* Custom user greetings
+
+## Basic Configuration
+
+Configuring agent details is straightforward. Import `AgentDetail` and use it in the decorator. Most fields are self-explanatory:
+
+```python
+import os
+
+from a2a.types import (
+    Message,
+)
+from beeai_sdk.server import Server
+from beeai_sdk.server.context import Context
+from beeai_sdk.a2a.extensions import AgentDetail, AgentDetailContributor, AgentDetailTool
+
+server = Server()
+
+@server.agent(
+    detail=AgentDetail(
+        ui_type="chat",
+        user_greeting="Welcome! I'm here to help you with your tasks.",
+        license="Apache 2.0",
+        programming_language="Python",
+        framework="BeeAI",
+        tools=[
+            AgentDetailTool(
+                name="Weather",
+                description="Get the weather for a given location",
+            ),
+        ],
+        homepage_url="https://github.com/beeai-dev/beeai-agents",
+        source_code_url="https://github.com/beeai-dev/beeai-agents",
+        container_image_url="ghcr.io/beeai-dev/beeai-agents:v0.0.1",
+        author=AgentDetailContributor(
+            name="BeeAI",
+            email="info@beeai.dev",
+            url="https://beeai.dev",
+        ),
+        contributors=[
+            AgentDetailContributor(
+                name="Another Person",
+                email="another@beeai.dev",
+                url="https://beeai.dev",
+            ),
+        ]
+    )
+)
+async def example_agent(input: Message, context: Context):
+    """An example agent with detailed configuration"""
+    yield "Hello World!"
+
+def run():
+    server.run(host=os.getenv("HOST", "127.0.0.1"), port=int(os.getenv("PORT", 8000)))
+
+
+if __name__ == "__main__":
+    run()
+```
+
+
+# Working with Files
+Source: https://docs.beeai.dev/build-agents/files
+
+Learn how to handle file uploads from users and generate downloadable files as outputs in your agents.
+
+One of the most common use cases for AI agents is working with files. Your agent should be able to read files from user uploads and generate new files as outputs. The BeeAI platform makes this seamless through the A2A protocol's `FilePart`.
+
+## Quickstart
+
+<Steps>
+  <Step title="Enable file uploads in your agent (optional)">
+    Add the `default_input_modes` parameter to your agent decorator only if you want users to upload files to your agent. This specifies which file types users can upload.
+  </Step>
+
+  <Step title="Inject the Platform API extension">
+    Import and use the `PlatformApiExtensionServer` to access file creation capabilities. This extension provides your agent with the proper context and authentication needed to use the BeeAI platform API for creating and managing files. If not provided, your agent will receive unauthorized responses when working with files.
+  </Step>
+
+  <Step title="Process uploaded files">
+    Iterate through message parts to find `FilePart` objects and load their content using `load_file` helper.
+  </Step>
+
+  <Step title="Generate new files">
+    Use the `File.create()` method to generate new files and yield them as `FilePart` objects.
+  </Step>
+</Steps>
+
+## Example of File Processing
+
+Here's how to build an agent that can accept and modify files:
+
+```python
+import os
+
+from typing import Annotated
+
+from beeai_sdk.server import Server
+from beeai_sdk.a2a.types import Message
+from beeai_sdk.a2a.extensions.services.platform import (
+    PlatformApiExtensionServer,
+    PlatformApiExtensionSpec,
+)
+from beeai_sdk.platform import File
+from beeai_sdk.util.file import load_file
+
+
+server = Server()
+
+
+@server.agent(
+    default_input_modes=["text/plain"],
+    default_output_modes=["text/plain"]
+)
+async def example_agent(
+    input: Message,
+    _: Annotated[PlatformApiExtensionServer, PlatformApiExtensionSpec()],
+):
+    """Agent that can accept and modify files"""
+
+    for file_part in input.parts:
+        file_part_root = file_part.root
+
+        if file_part_root.kind == "file":
+            async with load_file(file_part_root) as loaded_content:
+                new_file = await File.create(
+                    filename=f"processed_{file_part_root.file.name}",
+                    content_type=file_part_root.file.mime_type,
+                    content=loaded_content.text.encode(),
+                )
+                yield new_file.to_file_part()
+
+    yield "File Processing Done"
+
+
+def run():
+    server.run(host=os.getenv("HOST", "127.0.0.1"), port=int(os.getenv("PORT", 8000)))
+
+
+if __name__ == "__main__":
+    run()
+```
+
+## How to work with files
+
+Here's what you need to know to add file processing capabilities to your agent:
+
+**Enable file uploads**: Add `default_input_modes` to your agent decorator with a list of MIME types you want to accept (e.g., `["text/plain", "application/pdf", "image/jpeg"]`).
+
+**Enable producing of files**: Add `default_output_modes` to your agent decorator with a list of MIME types that your agent can potentially produce (e.g., `["text/plain", "application/pdf", "image/jpeg"]`).
+
+**Access the Platform API**: Import and use `PlatformApiExtensionServer` to get access to file manipulation capabilities.
+
+**Process message parts**: Iterate through `input.parts` to find FilePart objects that represent uploaded files.
+
+**Load file content**: Use `load_file()` with an async context manager to safely access file content.
+
+**Create new files**: Use `File.create()` to generate new files with custom names, content types, and content.
+
+**Yield file outputs**: The `File` object created by the SDK can be easily converted to a `FilePart` using the `to_file_part()` method and then yielded as agent outputs.
+
+## File Upload Configuration
+
+The `default_input_modes` parameter controls which file types users can upload:
+
+```python
+@server.agent(
+    default_input_modes=[
+        "text/plain",           # Plain text files
+        "application/pdf",      # PDF documents
+        "image/jpeg",           # JPEG images
+        "image/png",            # PNG images
+        "application/json",     # JSON files
+        "text/csv"              # CSV files
+    ]
+)
+```
+
+The `default_output_modes` parameter controls which file agent can produce:
+
+```python
+@server.agent(
+    default_output_modes=[
+        "text/plain",           # Plain text files
+        "application/pdf",      # PDF documents
+        "image/jpeg",           # JPEG images
+        "image/png",            # PNG images
+        "application/json",     # JSON files
+        "text/csv"              # CSV files
+    ]
+)
+```
+
+Common MIME types you might want to support:
+
+* **Text files**: `text/plain`, `text/markdown`, `text/csv`
+* **Documents**: `application/pdf`, `application/msword`, `application/vnd.openxmlformats-officedocument.wordprocessingml.document`
+* **Images**: `image/jpeg`, `image/png`, `image/gif`, `image/svg+xml`
+* **Data**: `application/json`, `application/xml`, `text/xml`
+
+
+# Structured User Input
+Source: https://docs.beeai.dev/build-agents/forms
+
+Leverage UI Forms to request structured input from the user.
+
+One of the most powerful features of the BeeAI platform is the ability to request structured data from users through interactive forms. Instead of relying on free-form text input, your agent can present users with specific fields, dropdowns, and other form elements to gather precise information.
+
+The BeeAI platform provides a Form extension that allows you to collect structured data from users in two ways:
+
+1. **Initial form rendering** - Present a form as the first interaction before users start a conversation with your agent
+2. **Dynamic form requests** - Request forms at any point during a multi-turn conversation when your agent needs specific structured input
+
+## Quickstart
+
+<Steps>
+  <Step title="Import the Form extension">
+    Import the necessary components from the BeeAI SDK form extension.
+  </Step>
+
+  <Step title="Add form parameter to your agent">
+    Inject the Form extension into your agent function using the `Annotated` type hint.
+  </Step>
+
+  <Step title="Define your form structure">
+    Create a `FormRender` object with the fields you want to collect from users.
+  </Step>
+
+  <Step title="Process form data">
+    Use either `parse_form_response()` for initial forms or `request_form()` for dynamic forms.
+  </Step>
+</Steps>
+
+## Initial Form Rendering
+
+For initial form rendering, you specify the form structure when injecting the extension and then parse the response from the initial message:
+
+```python
+import os
+from typing import Annotated
+
+from a2a.types import Message
+from beeai_sdk.server import Server
+from beeai_sdk.a2a.extensions.ui.form import (
+    FormExtensionServer,
+    FormExtensionSpec,
+    FormRender,
+    TextField
+)
+
+server = Server()
+
+@server.agent()
+async def initial_form_agent(
+    message: Message,
+    form: Annotated[
+        FormExtensionServer,
+        FormExtensionSpec(
+            params=FormRender(
+                id="user_info_form",
+                title="Welcome! Please tell us about yourself",
+                columns=2,
+                fields=[
+                    TextField(id="first_name", label="First Name", col_span=1),
+                    TextField(id="last_name", label="Last Name", col_span=1),
+                ],
+            )
+        ),
+    ],
+):
+    """Agent that collects user information through an initial form"""
+    
+    # Parse the form data from the initial message
+    form_data = form.parse_form_response(message=message)
+    
+    # Access the form values
+    first_name = form_data.values['first_name'].value
+    last_name = form_data.values['last_name'].value
+    
+    yield f"Hello {first_name} {last_name}! Nice to meet you."
+
+def run():
+    server.run(host=os.getenv("HOST", "127.0.0.1"), port=int(os.getenv("PORT", 8000)))
+
+if __name__ == "__main__":
+    run()
+```
+
+## Dynamic Form Requests
+
+For dynamic form requests during conversation, you can request forms at any point when your agent needs structured input. This is useful when your agent needs to collect additional information based on the conversation flow:
+
+```python
+import os
+from typing import Annotated
+
+from a2a.types import Message
+from a2a.utils.message import get_message_text
+from beeai_sdk.server import Server
+from beeai_sdk.a2a.extensions.ui.form import (
+    FormExtensionServer,
+    FormExtensionSpec,
+    FormRender,
+    TextField
+)
+
+server = Server()
+
+@server.agent()
+async def dynamic_form_agent(
+    message: Message,
+    form: Annotated[
+        FormExtensionServer,
+        FormExtensionSpec(params=None)
+    ],
+):
+    """Agent that requests forms dynamically during conversation"""
+    
+    user_input = get_message_text(message)
+    
+    # Check if user wants to provide contact information
+    if "contact" in user_input.lower() or "reach" in user_input.lower():
+        # Request contact form dynamically
+        form_data = await form.request_form(
+            form=FormRender(
+                id="contact_form",
+                title="Please provide your contact information",
+                columns=2,
+                fields=[
+                    TextField(id="email", label="Email Address", col_span=2),
+                    TextField(id="phone", label="Phone Number", col_span=1),
+                    TextField(id="company", label="Company", col_span=1),
+                ],
+            )
+        )
+        
+        email = form_data.values['email'].value
+        phone = form_data.values['phone'].value
+        company = form_data.values['company'].value
+        
+        yield f"Thank you! I'll contact you at {email} or {phone} regarding {company}."
+    else:
+        yield "Hello! If you'd like me to contact you, just let me know and I'll ask for your details."
+
+def run():
+    server.run(host=os.getenv("HOST", "127.0.0.1"), port=int(os.getenv("PORT", 8000)))
+
+if __name__ == "__main__":
+    run()
+```
+
+## How to work with forms
+
+Here's what you need to know to add form capabilities to your agent:
+
+**Import the form extension**: Import `FormExtensionServer`, `FormExtensionSpec`, `FormRender`, and field types from `beeai_sdk.a2a.extensions.ui.form`.
+
+**Inject the extension**: Add a form parameter to your agent function using the `Annotated` type hint with `FormExtensionServer` and `FormExtensionSpec`.
+
+**For initial forms**: Specify the form structure in the `FormExtensionSpec` parameters and use `parse_form_response()` to extract data from the initial message.
+
+**For dynamic forms**: Use an empty `FormExtensionSpec()` and call `await form.request_form()` with your form definition when needed.
+
+**Access form data**: Use `form_data.values['field_id'].value` to access the submitted values from your form fields. Different field types return different value types:
+
+* **TextField/DateField**: Returns `str | None`
+* **FileField**: Returns `list[FileInfo] | None` where each `FileInfo` has `uri`, `name`, and `mime_type`
+* **MultiSelectField**: Returns `list[str] | None` (list of selected option IDs)
+* **CheckboxField**: Returns `bool | None`
+
+## Form Field Types
+
+The BeeAI platform supports various field types for collecting different kinds of structured data:
+
+### TextField
+
+Basic text input fields for collecting strings, names, descriptions, etc.
+
+```python
+from beeai_sdk.a2a.extensions.ui.form import TextField
+
+TextField(
+    id="username", 
+    label="Username", 
+    col_span=1,
+    required=True,
+    placeholder="Enter your username",
+    default_value=""
+)
+```
+
+### DateField
+
+Date input fields for collecting dates and timestamps.
+
+```python
+from beeai_sdk.a2a.extensions.ui.form import DateField
+
+DateField(
+    id="birth_date", 
+    label="Birth Date",
+    col_span=1,
+    required=True,
+    placeholder="YYYY-MM-DD",
+    default_value="1990-01-01"
+)
+```
+
+### FileField
+
+File upload fields for collecting files from users.
+
+```python
+from beeai_sdk.a2a.extensions.ui.form import FileField
+
+FileField(
+    id="document", 
+    label="Upload Document",
+    col_span=2,
+    required=True,
+    accept=["application/pdf", "image/jpeg", "image/png"]
+)
+```
+
+### MultiSelectField
+
+Multi-select dropdown fields for choosing multiple options from a list.
+
+```python
+from beeai_sdk.a2a.extensions.ui.form import OptionItem, MultiSelectField
+
+MultiSelectField(
+    id="interests", 
+    label="Your Interests",
+    col_span=2,
+    required=False,
+    options=[
+        OptionItem(id="tech", label="Technology"),
+        OptionItem(id="sports", label="Sports"),
+        OptionItem(id="music", label="Music"),
+        OptionItem(id="travel", label="Travel")
+    ],
+    default_value=["tech", "music"]
+)
+```
+
+### CheckboxField
+
+Single checkbox fields for boolean values.
+
+```python
+from beeai_sdk.a2a.extensions.ui.form import CheckboxField
+
+CheckboxField(
+    id="newsletter", 
+    label="Subscribe to Newsletter", 
+    col_span=1,
+    required=False,
+    content="I agree to receive marketing emails",
+    default_value=False
+)
+```
+
+## Form Layout Configuration
+
+Control how your form appears using the `FormRender` configuration:
+
+```python
+FormRender(
+    id="my_form",
+    title="Form Title",
+    description="Optional description text below the title",
+    columns=2,  # Number of columns in the form grid
+    submit_label="Custom Submit Button Text",
+    fields=[
+        # Your field definitions here
+    ]
+)
+```
+
+**FormRender properties**:
+
+* **`id`**: Unique identifier for the form (required)
+* **`title`**: Main heading displayed above the form
+* **`description`**: Optional description text displayed below the title
+* **`columns`**: Number of columns in the form grid (1-4)
+* **`submit_label`**: Custom text for the submit button (default: "Submit")
+* **`fields`**: List of form field definitions (required)
+
+<Tip>
+  Use `col_span` on individual fields to control how they span across the grid. For example, with `columns=2`, a field with `col_span=2` will take the full width, while `col_span=1` will take half the width.
+</Tip>
+
+
+# GUI Components
+Source: https://docs.beeai.dev/build-agents/gui-components
+
+Customize how your agents appear and behave in the BeeAI platform interface
+
+Your agent can leverage certain features of the platform to achieve the best possible user experience. When you yield specific content types from your agent, the BeeAI platform automatically renders them with appropriate visual representations.
+
+## Markdown Support
+
+When you yield text content, the BeeAI platform automatically renders it as Markdown, providing rich formatting capabilities.
+
+```python
+yield "This text can be **bold** or _italic_"
+```
+
+### Supported Markdown Features
+
+* **Headers, lists, and text formatting** - Create structured content with headings, bullet points, and emphasis
+* **Code blocks with syntax highlighting** - Display code snippets with proper syntax highlighting
+* **Tables and structured data** - Present data in organized table formats
+* **Links and images** - Include hyperlinks and visual content
+
+## File Attachments
+
+When you yield a `FilePart`, the GUI renders it as an attachment to the conversation, making it easy for users to access and download files.
+
+```python
+yield FilePart(file=FileWithUri(uri="https://www.ibm.com/us-en", mime_type="text/html", name="IBM Website"))
+```
+
+## GUI Extensions
+
+The BeeAI platform leverages the A2A extensions concept, which allows you to easily extend message metadata in specific formats that the GUI can render in specialized ways.
+
+GUI extensions are simple to use. You just need to inject the extension into your agent's function signature:
+
+```python
+import os
+from typing import Annotated
+
+from a2a.types import (
+    Message,
+)
+from beeai_sdk.server import Server
+from beeai_sdk.server.context import Context
+from beeai_sdk.a2a.extensions import TrajectoryExtensionServer, TrajectoryExtensionSpec
+
+server = Server()
+
+@server.agent()
+async def example_agent(
+    input: Message, context: Context, trajectory: Annotated[TrajectoryExtensionServer, TrajectoryExtensionSpec()]
+):
+    """Polite agent that greets the user"""
+
+    yield trajectory.trajectory_metadata(
+        title="What did I do?",
+        content="User greeted me, I should reply with a greeting.",
+    )
+    yield "Hello there!"
+
+
+def run():
+    server.run(host=os.getenv("HOST", "127.0.0.1"), port=int(os.getenv("PORT", 8000)))
+
+
+if __name__ == "__main__":
+    run()
+```
+
+## Available Extensions
+
+The BeeAI platform currently supports two types of GUI extensions:
+
+### Trajectory Visualization
+
+The platform provides built-in trajectory visualization to show the step-by-step process of agent execution. This helps users understand how your agent processes information and makes decisions.
+
+<Steps>
+  <Step title="Inject the extension">
+    Add the trajectory extension to your agent's function signature:
+
+    ```python
+    from beeai_sdk.a2a.extensions import TrajectoryExtensionServer, TrajectoryExtensionSpec
+
+    @server.agent()
+    async def example_agent(
+        input: Message, context: Context, trajectory: Annotated[TrajectoryExtensionServer, TrajectoryExtensionSpec()]
+    ):
+    ```
+  </Step>
+
+  <Step title="Yield trajectory metadata">
+    Use the injected `trajectory` reference to yield trajectory information:
+
+    ```python
+    yield trajectory.trajectory_metadata(
+        title="What did I do?",
+        content="User greeted me, I should reply with a greeting.",
+    )
+    ```
+  </Step>
+</Steps>
+
+### Sources & Citations
+
+For agents that reference external sources, the platform provides built-in citation components that help users verify information and access source materials.
+
+<Steps>
+  <Step title="Inject the citation extension">
+    Add the citation extension to your agent's function signature:
+
+    ```python
+    from beeai_sdk.a2a.extensions import CitationExtensionServer, CitationExtensionSpec
+
+    @server.agent()
+    async def example_agent(
+        input: Message, context: Context, citation: Annotated[CitationExtensionServer, CitationExtensionSpec()]
+    ):
+    ```
+  </Step>
+
+  <Step title="Yield citation information">
+    Use the injected `citation` reference to provide source information:
+
+    ```python
+    yield citation.message(
+        text="According to recent studies...",
+        citation_start_index=0,
+        citation_end_index=10,
+        citation_url="https://www.ibm.com/us-en",
+        citation_title="IBM Research",
+        citation_description="The study from 1997 demonstrates...",
+    )
+    ```
+  </Step>
+</Steps>
+
+
+# Hello World
+Source: https://docs.beeai.dev/build-agents/hello-world
+
+Start building your own agent with a simple Hello World example
+
+Now that your BeeAI Platform is up and running, and you have a basic understanding of how to run the agent via either the GUI or CLI, let’s get to some coding.
+
+To build an agent that automatically appears in the platform, all you need to do is use the BeeAI SDK library, which handles the registration process for you.
+
+Although building a “Hello World” agent is straightforward, we’ve streamlined the process for you with a starter repository that you can begin editing right away.
+
+## Prerequisites
+
+* [BeeAI Platform](/introduction/quickstart) installed
+* Python 3.11 or higher
+* [UV](https://docs.astral.sh/uv/) package manager
+
+## Quickstart
+
+<Steps>
+  <Step title="Use the official starter template to get started quickly.">
+    <Tabs>
+      <Tab title="Clone Directly">
+        ```bash
+        git clone https://github.com/i-am-bee/beeai-platform-agent-starter my-agent
+        cd my-agent
+        ```
+      </Tab>
+
+      <Tab title="Use as a GitHub template">
+        1. Go to [the template repository](https://github.com/i-am-bee/beeai-platform-agent-starter)
+        2. Click "Use this template" → "Create a new repository"
+        3. Clone your new repository locally
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Test the Template Agent">
+    ```bash
+    uv run server
+    ```
+  </Step>
+
+  <Step title="Then in another terminal">
+    ```bash
+    beeai run example_agent "Alice"
+    ```
+  </Step>
+</Steps>
+
+You should see: "Ciao Alice!" 🎉
+
+With your first agent up and running, you can now modify the code to do whatever you want.
+
+## Implement Your Agent Logic
+
+Navigate to [src/beeai\_agents/agent.py](https://github.com/i-am-bee/beeai-platform-agent-starter/blob/main/src/beeai_agents/agent.py) and replace the example with your agent implementation.
+
+The example implementation doesn’t do much. It’s intended purely for demonstration purposes.
+
+```python
+import os
+
+from a2a.types import (
+    Message,
+)
+from a2a.utils.message import get_message_text
+from beeai_sdk.server import Server
+from beeai_sdk.server.context import Context
+from beeai_sdk.a2a.types import AgentMessage
+
+server = Server()
+
+@server.agent()
+async def example_agent(input: Message, context: Context):
+    """Polite agent that greets the user"""
+    hello_template: str = os.getenv("HELLO_TEMPLATE", "Ciao %s!")
+    yield AgentMessage(text=hello_template % get_message_text(input))
+
+def run():
+    server.run(host=os.getenv("HOST", "127.0.0.1"), port=int(os.getenv("PORT", 8000)))
+
+
+if __name__ == "__main__":
+    run()
+```
+
+<Steps title="Building Your First Agent: Step-by-Step">
+  <Step title="Start a server">
+    An agent is essentially an HTTP server. Create a `Server` instance and run it using `run()`.
+  </Step>
+
+  <Step title="Mark your agent function">
+    Add the `@server.agent` decorator to your function so the platform recognizes it as an agent.
+  </Step>
+
+  <Step title="Name your agent">
+    Whatever you name the function will be the agent’s name in the platform.
+  </Step>
+
+  <Step title="Describe your agent">
+    Write a docstring for the function; it will be extracted and shown as the agent’s description in the platform.
+  </Step>
+
+  <Step title="Understand the function arguments">
+    * **First argument:** an [A2A `Message`](https://a2a-protocol.org/latest/specification/#64-message-object).
+    * **Second argument:** a `Context` object with run details (e.g., `task_id`, `context_id`).
+  </Step>
+
+  <Step title="Extract text from Message">
+    Use `get_message_text()` to quickly extract the text content from a `Message`.
+  </Step>
+
+  <Step title="Make it an async generator">
+    The agent function should be asynchronous and yield results as they’re ready.
+  </Step>
+
+  <Step title="Send responses easily">
+    * Yield an `AgentMessage` (a handy wrapper around A2A Message) for convenience.
+    * Or yield a plain `str`, which will be automatically converted into an A2A Message.
+  </Step>
+</Steps>
+
+## Starting from Scratch
+
+Want to build your agent without using our starter repo?
+
+All you need to do is set up an empty Python project, install `beeai-sdk` as a dependency, and then use the code above.
+
+There’s no magic in the starter repo. It simply provides some basic Python scaffolding, a simple GitHub workflow, and a Dockerfile, most of which are entirely optional.
+
+## Next Steps
+
+Now that you've built your Hello World agent, you can:
+
+* Explore how to provide more [GUI configuration](/build-agents/agent-details) options through the concept of `AgentDetail`
+* Leverage [LLM Access](/build-agents/llm-access) in your agent
+* Understand how [Messages](/build-agents/messages) are used for communication between Agent and the Client
+* Build beautiful GUI for your agents with [GUI Components](/build-agents/gui-components)
+* Request structured input from the user using [forms](/build-agents/forms)
+* Learn how to work with [files](/build-agents/files)
+* [Share your agent](/how-to/share-agents) with the others
+
+
+# LLM Configuration
+Source: https://docs.beeai.dev/build-agents/llm-configuration
+
+Learn how to request and use LLM access within your agent
+
+When building AI agents, one of the first requirements you might have is to connect your agent to a Large Language Model (LLM). Fortunately, the BeeAI platform helps with this by providing built-in OpenAI-compatible LLM inference.
+
+The platform's OpenAI endpoints are model and provider agnostic, serving as a proxy to whatever is configured.
+
+For you as an agent builder, the usage is extremely simple because we've wrapped the usage into a Service Extension.
+
+<Tip>
+  Service Extensions are a type of [A2A Extension](https://a2a-protocol.org/latest/topics/extensions/) that allows you to easily "inject dependencies" into your agent. This follows the inversion of control principle where your agent defines what it needs, and the platform (in this case, BeeAI) is responsible for providing those dependencies.
+</Tip>
+
+<Warning>
+  Service extensions are optional by definition, so you should always check if they exist before using them.
+</Warning>
+
+## Quickstart
+
+<Steps>
+  <Step title="Add LLM service extension to your agent">
+    Import the necessary components and add the LLM service extension to your agent function.
+  </Step>
+
+  <Step title="Configure your LLM request">
+    Specify which model your agent prefer and how you want to access it.
+  </Step>
+
+  <Step title="Use the LLM in your agent">
+    Access the optionally provided LLM configuration and use it with your preferred LLM client.
+  </Step>
+</Steps>
+
+## Example of LLM Access
+
+Here's how to add LLM inference capabilities to your agent:
+
+```python
+import os
+from typing import Annotated
+
+from a2a.types import Message
+from a2a.utils.message import get_message_text
+from beeai_sdk.server import Server
+from beeai_sdk.a2a.types import AgentMessage
+from beeai_sdk.a2a.extensions import LLMServiceExtensionServer, LLMServiceExtensionSpec
+
+server = Server()
+
+@server.agent()
+async def example_agent(
+    input: Message,
+    llm: Annotated[
+        LLMServiceExtensionServer,
+        LLMServiceExtensionSpec.single_demand(suggested=("ibm/granite-3-3-8b-instruct",))
+    ],
+):
+    """Agent that uses LLM inference to respond to user input"""
+
+    if llm:
+        # Extract the user's message
+        user_message = get_message_text(input)
+        
+        # Get LLM configuration
+        # Single demand is resolved to default (unless specified otherwise)
+        llm_config = llm.data.llm_fulfillments.get("default")
+        
+        # Use the LLM configuration with your preferred client
+        # The platform provides OpenAI-compatible endpoints
+        api_model = llm_config.api_model
+        api_key = llm_config.api_key
+        api_base = llm_config.api_base
+
+        yield AgentMessage(text=f"LLM access configured for model: {api_model}")
+
+def run():
+    server.run(host=os.getenv("HOST", "127.0.0.1"), port=int(os.getenv("PORT", 8000)))
+
+if __name__ == "__main__":
+    run()
+```
+
+## How to request LLM access
+
+Here's what you need to know to add LLM inference capabilities to your agent:
+
+**Import the extension**: Import `LLMServiceExtensionServer` and `LLMServiceExtensionSpec` from `beeai_sdk.a2a.extensions`.
+
+**Add the LLM parameter**: Add a third parameter to your agent function with the `Annotated` type hint for LLM access.
+
+**Specify your model requirements**: Use `LLMServiceExtensionSpec.single_demand()` to request a single model (multiple models will be supported in the future).
+
+**Suggest a preferred model**: Pass a tuple of suggested model names to help the platform choose the best available option.
+
+**Check if the extension exists**: Always verify that the LLM extension is provided before using it, as service extensions are optional.
+
+**Access LLM configuration**: Use `llm.data.llm_fulfillments.get("default")` to get the LLM configuration details.
+
+**Use with your LLM client**: The platform provides `api_model`, `api_key`, and `api_base` that work with OpenAI-compatible clients.
+
+## Understanding LLM Configuration
+
+The platform automatically provides you with:
+
+* **`api_model`**: The specific model identifier that was allocated to your request
+* **`api_key`**: Authentication key for the LLM service
+* **`api_base`**: The base URL for the OpenAI-compatible API endpoint
+
+These credentials work with any OpenAI-compatible client library, making it easy to integrate with popular frameworks like:
+
+* BeeAI Framework
+* LangChain
+* LlamaIndex
+* OpenAI Python client
+* Custom implementations
+
+## Model Selection
+
+When you specify a suggested model like `"ibm/granite-3-3-8b-instruct"`, the platform will:
+
+1. Check if the requested model is available in your configured environment
+2. Allocate the best available model that matches your requirements
+3. Provide you with the exact model identifier and endpoint details
+
+The platform handles the complexity of model provisioning and endpoint management, so you can focus on building your agent logic.
+
+
+# Handling Messages
+Source: https://docs.beeai.dev/build-agents/messages
+
+Understand how the main communication unit works when building your own agent
+
+In the Hello World example, you used `yield` with `AgentMessage` to send textual data to the agent consumer. This concept has two important parts:
+
+1. **Yielding data**: You can yield data from your agent implementation, which gets sent to the client
+2. **AgentMessage wrapper**: `AgentMessage` is a convenience wrapper around [A2A](https://github.com/a2aproject/A2A) `Message` that simplifies common use cases. Think of responding with text to the client.
+
+## BeeAI SDK Message Types
+
+The BeeAI SDK simplifies development by allowing you to yield different types of data. You can use convenient SDK constructs or direct A2A components.
+
+### Convenience Wrappers
+
+#### AgentMessage
+
+The most common way to respond with text. It's a convenience wrapper around A2A `Message` that makes it easy to create responses:
+
+```python
+yield AgentMessage(text="This is my text", metadata={"foo": "bar"})
+```
+
+#### Plain strings
+
+Simple strings are automatically converted to textual A2A `Message` objects:
+
+```python
+yield "Hello, world!"
+```
+
+#### Plain dict
+
+Dictionaries sends `Message` containing `DataPart`
+
+```python
+yield {"status": "processing", "progress": 50}
+```
+
+#### AgentArtifact
+
+Same as `AgentMessage` but simplifies work with Artifacts.
+
+### Direct A2A Components
+
+For more advanced use cases, you can yield direct A2A protocol components.
+
+<Warning>
+  While it's perfectly fine to yield plain A2A Components, the BeeAI platform forms opinions on communication to support great UX in the GUI. For the best user experience, we recommend using the convenience wrappers when possible.
+</Warning>
+
+<Tip>
+  Feel free to check the A2A [Key Concepts](https://a2a-protocol.org/latest/topics/key-concepts/#fundamental-communication-elements) page to understand all the structures thoroughly.
+</Tip>
+
+#### Message
+
+The basic communication unit in the A2A protocol, representing a single turn in a conversation.
+
+```python
+import uuid
+from a2a.types import ( Message, TextPart )
+
+yield Message(role="agent", message_id=str(uuid.uuid4()), parts=[TextPart(text="Hello from the agent!")])
+```
+
+#### Part
+
+The fundamental unit of content. For example, a `TextPart` contains text data. A `Message` consists of multiple `Part` objects. Can be any of `TextPart`, `FilePart`, or `DataPart`.
+
+```python
+from a2a.types import ( TextPart )
+
+yield TextPart(text="Hello from the agent!")
+```
+
+#### Artifact
+
+Tangible outputs produced by the agent, such as documents, files, or other generated content.
+
+```python
+import uuid
+from a2a.types import Artifact, FilePart, FileWithUri
+
+yield Artifact(
+    artifact_id=str(uuid.uuid4()),
+    parts=[FilePart(file=FileWithUri(uri="https://www.ibm.com/us-en", mime_type="text/html", name="IBM Website"))],
+)
+```
+
+#### TaskStatus
+
+A stateful unit of work that can annotate a transaction spanning multiple messages. The task state can change over time as the agent progresses.
+
+```python
+import uuid
+from a2a.types import TaskStatus, TextPart, Message, TaskState
+
+yield TaskStatus(
+    message=Message(message_id=str(uuid.uuid4()), role="agent", parts=[TextPart(text="Please provide some input.")]),
+    state=TaskState.input_required,
+)
+```
+
+
+# Contribute
+Source: https://docs.beeai.dev/community-and-support/contribute
+
+Learn how to contribute to BeeAI
+
+Welcome! We’re so glad you’re here. Whether you're fixing a typo, filing a bug, or building something brand new, your contributions help shape BeeAI into something better for everyone.
+
+Here’s a quick guide to help you get started.
+
+## What We Value
+
+BeeAI is more than code - it’s a community of curious, collaborative people. We care about:
+
+* Making real problems easier to solve
+* Sharing early and learning together
+* Designing tools that are easy to build on
+* Keeping things kind, intentional, and inclusive
+
+## Ways to Contribute
+
+You don’t need to be an AI expert to help. Here’s how you can get involved:
+
+* Use BeeAI and tell us what works (and what doesn’t)
+* Open an issue for bugs, questions, or new ideas
+* Share feedback on discussions or pull requests
+* Propose changes — small ones are just as helpful!
+* Improve docs, clarify examples, or help others onboard
+
+## How We Work
+
+We’re async-friendly, open to feedback, and always learning. A few principles:
+
+* Start small and share often
+* Focus on the problem you’re solving, not just the code
+* Give thoughtful feedback and expect the same in return
+* Prioritize clarity, empathy, and user impact
+
+## Getting Started
+
+Not sure where to begin?
+
+* Start with our [Contributing Guide](https://github.com/i-am-bee/beeai-platform/blob/main/CONTRIBUTING.md)
+* Browse [Good first issues](https://github.com/i-am-bee/beeai-platform/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22good%20first%20issue%22) to find something small and approachable
+* Join the conversation on [Discord](https://discord.gg/NradeA6ZNF) - questions, ideas, and curiosity welcome
+
+Don't hesitate to reach out - we’re here to help you get started.
+
+## Thanks for Being Here
+
+We’re grateful for your time, your ideas, and your effort to help make BeeAI better.
+
+If you get stuck, feel free to [open an issue](https://github.com/i-am-bee/beeai-platform/issues) or reach out to the team on [Discord](https://discord.gg/NradeA6ZNF)!
+
+
+# Troubleshooting
+Source: https://docs.beeai.dev/community-and-support/troubleshooting
+
+Troubleshoot common BeeAI issues
+
+Having issues with BeeAI? Here are the most common fixes:
+
+## Quick Fixes
+
+### Restart the Platform
+
+```bash
+beeai platform stop
+beeai platform start
+```
+
+### Update to Latest Version
+
+Make sure you have the latest version:
+
+```bash
+uv tool install --force beeai-cli
+beeai platform start
+```
+
+### Check Your LLM Setup
+
+Agents need LLM configuration to work:
+
+```bash
+beeai model setup
+```
+
+### Using Ollama? Pull Your Model
+
+If using [Ollama](https://ollama.com/), make sure it's installed and the model is pulled:
+
+```bash
+ollama pull llama3.1:8b
+```
+
+### Advanced debugging
+
+You can inspect the agent logs and events using `beeai logs <agent-name>` or you can access the kubernetes
+cluster directly using `beeai platform exec`, for example:
+
+```bash
+# List running pods
+beeai platform exec kubectl get pod
+
+# Get server logs
+beeai platform exec kubectl logs svc/beeai-platform-svc
+
+# Inspect cluster using GUI
+export KUBECONFIG=~/.beeai/lima/beeai-platform/copied-from-guest/kubeconfig.yaml
+k9s
+```
+
+## Get Help
+
+Still stuck?
+
+* [Discord Community](https://discord.gg/NradeA6ZNF)
+* [GitHub Issues](https://github.com/i-am-bee/beeai-platform/issues)
+
+
+# A2A Protocol
+Source: https://docs.beeai.dev/concepts/a2a
+
+The open standard for AI agent communication powering the BeeAI Platform
+
+The **Agent2Agent (A2A) Protocol** is the open standard for AI agent communication, powering the BeeAI Platform. Developed under the Linux Foundation, A2A makes it possible for agents to work together seamlessly across platforms, frameworks, and ecosystems.
+
+A2A Protocol defines how messages are structured, exchanged, and extended so agents can communicate effectively regardless of how they were built or where they're hosted. This standardization enables true agent interoperability across the ecosystem.
+
+👉 Learn more in the **[official A2A documentation](https://a2a-protocol.org/)**.
+
+
+# Kubernetes
+Source: https://docs.beeai.dev/deployment/kubernetes
+
+Deploy BeeAI to Kubernetes using Helm
+
+## Prerequisites
+
+* Kubernetes cluster (local or cloud)
+* Helm 3.x installed
+* kubectl configured to access your cluster
+* BeeAI installed for post-deployment configuration
+
+<Warning>
+  This deployment guide is intended for development and testing environments. We
+  don't recommend public deployments at this time as the platform is still
+  evolving and lacks production-ready security features like user management and
+  rate limiting.
+</Warning>
+
+## Installation
+
+### Step 1: Create Configuration File
+
+Create a value file with the minimum configuration:
+
+`config.yaml`:
+
+```yaml
+# If you want to include agents from the default catalog (change release/tag accordingly):
+externalRegistries:
+  public_github: "https://github.com/i-am-bee/beeai-platform@v0.2.14#path=agent-registry.yaml"
+# Your custom agents as docker images
+providers:
+  # e.g.
+  # - location: ghcr.io/i-am-bee/beeai-platform-agent-starter/my-agent:latest
+  - location: <docker-image-id>
+# Generate the encryption key:
+#  - using UV (https://docs.astral.sh/uv/getting-started/installation/)
+#   $ uv run --with cryptography python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
+#  - using python3 directly
+#   $ python3 -m pip install cryptography # (or use your preferred way to install the cryptography package)
+#   $ python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
+encryptionKey: "encryption-key-from-command"
+features:
+  uiNavigation: true
+# this requires passing an admin password to certain endpoints, you can disable auth for insecure deployments
+auth:
+  enabled: true
+  adminPassword: "my-secret-password"
+  jwtSecretKey: "my-secret-key"
+```
+
+### Step 2: Install the Chart
+
+Then install the chart using:
+
+```shell
+helm install -f config.yaml beeai oci://ghcr.io/i-am-bee/beeai-platform/beeai-platform-chart/beeai-platform:0.2.10
+```
+
+### Step 3: Setup LLM
+
+After the beeai-platform becomes ready, it's necessary to configure the LLM provider. We will use the `admin-password` you created earlier and your preferred LLM credentials, for example:
+
+```shell
+kubectl run curlpod --image=curlimages/curl -it --rm --restart=Never -- curl -X PUT \
+  beeai-platform-svc:8333/api/v1/variables \
+  -u beeai-admin:my-secret-password \
+  -H "Content-Type: application/json" \
+  -d '{
+    "env": {
+        "LLM_API_BASE": "https://api.openai.com/v1",
+        "LLM_API_KEY": "sk-...",
+        "LLM_MODEL": "gpt-4o"
+    }
+  }'
+```
+
+## Use the Platform
+
+Test that the platform is working:
+
+```shell
+# port-forward in a separate terminal
+kubectl port-forward svc/beeai-platform-svc 8333:8333 &
+```
+
+```shell
+beeai list
+beeai run chat hi
+```
+
+## Configuration Options
+
+### Security Settings
+
+<Warning>
+  The current authentication model is basic and intended for development use.
+  For any deployment beyond local testing, carefully consider your security
+  requirements and network access controls.
+</Warning>
+
+For development/testing environments with authentication:
+
+```yaml
+# config.yaml
+auth:
+  enabled: true
+  adminPassword: "use-a-strong-password-here"
+  jwtSecretKey: "use-a-strong-key-here"
+
+# Generate a secure encryption key
+encryptionKey: "your-32-byte-base64-encoded-key"
+```
+
+For local testing environments without authentication:
+
+```yaml
+# config.yaml - INSECURE, for testing only
+auth:
+  enabled: false
+```
+
+### Agent Configuration
+
+Include specific agents in your deployment:
+
+```yaml
+# config.yaml
+providers:
+  # Community agents
+  - location: ghcr.io/i-am-bee/beeai-platform/community/aider:latest
+  - location: ghcr.io/i-am-bee/beeai-platform/community/gpt-researcher:latest
+
+  # Official agents
+  - location: ghcr.io/i-am-bee/beeai-platform/official/beeai-framework/chat:latest
+
+  # Your custom agents
+  - location: your-registry.com/your-team/custom-agent:v1.0.0
+```
+
+### External Agent Registry
+
+Use the default agent registry instead of specifying individual agents:
+
+```yaml
+# config.yaml
+externalRegistries:
+  public_github: "https://github.com/i-am-bee/beeai-platform@v0.2.14#path=agent-registry.yaml"
+# Omit the 'providers' section to use only registry agents
+```
+
+## Management Commands
+
+### Upgrading
+
+To upgrade to a newer version of the beeai platform, use:
+
+```shell
+helm upgrade --install -f config.yaml beeai oci://ghcr.io/i-am-bee/beeai-platform/beeai-platform-chart/beeai-platform:<newer-version>
+```
+
+### View Current Configuration
+
+```bash
+helm get values beeai
+```
+
+### Check Deployment Status
+
+```bash
+helm status beeai
+kubectl get pods
+kubectl logs deployment/beeai-platform
+```
+
+### Uninstall
+
+```bash
+helm uninstall beeai
+```
+
+## Troubleshooting
+
+### Common Issues
+
+**Platform not starting:**
+
+```bash
+# Check pod logs
+kubectl logs deployment/beeai-platform
+
+# Check events
+kubectl get events --sort-by=.lastTimestamp
+```
+
+**Can't access agents:**
+
+```bash
+# Verify LLM configuration
+kubectl logs deployment/beeai-platform | grep -i llm
+```
+
+**Authentication issues:**
+
+```bash
+# Check if authentication is properly configured
+kubectl get secret beeai-platform-secret -o yaml
+```
+
+
+# Overview
+Source: https://docs.beeai.dev/deployment/overview
+
+Deploy the BeeAI Platform for your team with centralized agent management and shared resources
+
+BeeAI Platform can be deployed as a centralized instance for your team, providing a shared environment where developers can publish agents and end users can discover and run them through a unified interface.
+
+<Warning>
+  **Internal Use Only**: BeeAI is not secure for public internet exposure. It includes an unprotected LLM API endpoint (`/chat/completions`) that would allow anyone to use your LLM credits for free. Deploy only on internal networks behind firewalls.
+</Warning>
+
+## Why Deploy BeeAI?
+
+Moving from individual BeeAI instances to a team deployment provides several key advantages:
+
+* **Centralized Catalog:** All team agents in one searchable location
+* **Shared Configuration:** Manage LLM providers and API keys centrally
+* **Agent Sharing:** Developers can easily share and discover agents
+* **Resource Management:** Automatic scaling and resource allocation
+
+## Deployment
+
+BeeAI deploys on Kubernetes using Helm charts. See the [Kubernetes guide](/deployment/kubernetes) for detailed instructions.
+
+## Requirements
+
+* Kubernetes 1.24+ with admin access
+* Helm 3.8+
+* Persistent storage (20GB+ for PostgreSQL)
+* LLM provider API access (OpenAI, Anthropic, etc.)
+
+## Quick Start
+
+1. Follow the [Kubernetes guide](/deployment/kubernetes)
+2. Configure your LLM provider using environment variables
+3. Enable authentication for shared access
+4. Add agents from the public registry or your own sources
+
+
+# CLI Reference
+Source: https://docs.beeai.dev/how-to/cli-reference
+
+Complete reference for the BeeAI command-line interface
+
+BeeAI command-line interface (CLI) provides powerful tools to discover, run, and manage agents directly from your terminal. This document serves as a comprehensive reference for all available commands and options.
+
+## Basic Usage
+
+The basic syntax for BeeAI commands follows this pattern:
+
+```bash
+beeai [command] [subcommand] [arguments] [options]
+```
+
+To see a list of all available commands:
+
+```bash
+beeai --help
+```
+
+## Core Commands
+
+### List
+
+List all available agents:
+
+```bash
+beeai list
+```
+
+This displays a table with agent names, statuses, descriptions, UI types, locations, missing environment variables, and error messages.
+
+### Run
+
+Run an agent with specified input:
+
+```bash
+beeai run <agent-name> [input]
+```
+
+**Examples:**
+
+```bash
+# Run chat agent interactively
+beeai run chat
+
+# Run agent with direct input
+beeai run chat "Hello!"
+
+# Run agent with input from file
+beeai run chat < input.txt
+
+# Pipe between agents
+beeai run gpt_researcher "Latest AI developments" | beeai run chat "Summarize in 3 points"
+```
+
+### Info
+
+Get detailed information about a specific agent:
+
+```bash
+beeai info <agent-name>
+```
+
+Shows details including description, input/output schemas, examples, configuration options, and provider information.
+
+### Add
+
+Add an agent to your environment:
+
+```bash
+beeai add <location>
+# Aliases: install
+```
+
+Use `beeai add` when:
+
+* You want to use an agent (one-step process)
+* You don't care about build details
+* You want the simplest workflow
+
+Location formats:
+
+```bash
+# From Docker image
+beeai add ghcr.io/i-am-bee/beeai-platform/community/aider:latest
+
+# From GitHub repository
+beeai add "https://github.com/i-am-bee/custom-agent"
+
+# From GitHub with version
+beeai add "https://github.com/i-am-bee/custom-agent#v1.0.0"
+
+# From GitHub with specific path
+beeai add "https://github.com/i-am-bee/repo#:agents/my-agent"
+
+# From local path (builds Docker image)
+beeai add ./my-agent-directory
+```
+
+### Remove
+
+Remove an agent from your environment:
+
+```bash
+beeai remove <agent-name>
+# Aliases: uninstall, rm, delete
+```
+
+### Logs
+
+View and follow the logs for an agent:
+
+```bash
+beeai logs <agent-name>
+```
+
+This displays the agent's log output and continues streaming new logs as they are generated.
+
+### Build
+
+Build an agent from a local directory or repository:
+
+```bash
+beeai build [context]
+```
+
+Arguments:
+
+* `context`: Docker context for the agent (default: current directory)
+
+Options:
+
+* `--tag <name>`: Docker tag for the agent
+* `--multi-platform`: Build for multiple platforms
+* `--import / --no-import`: Import the image into BeeAI platform (default: true)
+
+Use `beeai build` when:
+
+* You want to test builds before using them (`--no-import`)
+* You need custom build options (`--multi-platform`, custom `--tag`)
+* You're developing and want to control the build process
+* You want to build images for sharing (not immediate use)
+
+Examples:
+
+```bash
+# Build from current directory
+beeai build .
+
+# Build with custom tag
+beeai build . --tag my-agent:latest
+
+# Build without importing
+beeai build . --no-import
+
+# Build from GitHub URL
+beeai build "https://github.com/user/repo"
+```
+
+## Environment Management
+
+### Environment Setup
+
+Interactive setup for LLM provider environment variables:
+
+```bash
+beeai model setup
+```
+
+This guides you through setting up the required environment variables for your chosen LLM provider.
+
+### Environment Variables
+
+Manage environment variables for agents:
+
+```bash
+# List all environment variables
+beeai env list
+
+# Add or update an environment variable
+beeai env add KEY=VALUE
+
+# Remove an environment variable
+beeai env remove KEY
+```
+
+**Examples:**
+
+```bash
+# Set up an OpenAI-compatible API
+beeai env add LLM_MODEL=gpt-4o
+beeai env add LLM_API_BASE=https://api.openai.com/v1
+beeai env add LLM_API_KEY=sk_...
+```
+
+## System Commands
+
+### Start
+
+Start the BeeAI server:
+
+```bash
+beeai platform start
+```
+
+### Stop
+
+Stop the BeeAI server:
+
+```bash
+beeai platform stop
+```
+
+### Delete
+
+Delete the BeeAI server:
+
+```bash
+beeai platform delete
+```
+
+### UI
+
+Launch the web interface:
+
+```bash
+beeai ui
+```
+
+This runs the server in the foreground.
+
+### Version
+
+Display version information:
+
+```bash
+beeai version
+```
+
+## Global Options
+
+Most commands support these general options:
+
+* `--help`: Show help information for a command
+* `--debug`: Enable debug output for troubleshooting
+
+
+# Discover Agents
+Source: https://docs.beeai.dev/how-to/discover-agents
+
+
+
+BeeAI provides a curated catalog of ready-to-use AI agents to help you get started and understand the platform's capabilities.
+
+The easiest way to browse available agents is through the [Agent Catalog](https://beeai.dev/agents). This visual interface lets you explore agents by their capabilities, types, and usage examples.
+
+## List Agents
+
+To explore agents from the command line, use:
+
+```bash
+beeai list
+```
+
+This command returns a table of installed and available agents with the following columns:
+
+| **Field**       | **Description**                                                                   |
+| :-------------- | :-------------------------------------------------------------------------------- |
+| **NAME**        | The agent identifier.                                                             |
+| **STATUS**      | Current state of the agent.                                                       |
+| **DESCRIPTION** | A brief summary of what the agent does.                                           |
+| **UI**          | The type of user interface it supports, such as `chat`, `hands-off`, or `<none>`. |
+| **LOCATION**    | The source registry path for the agent image.                                     |
+| **MISSING ENV** | Lists any missing environment variables (if applicable).                          |
+| **LAST ERROR**  | Displays the last recorded error message (if applicable).                         |
+
+## Agent Details
+
+To learn more about a specific agent before using it, run:
+
+```bash
+beeai info <agent-name>
+```
+
+This will show:
+
+* Full description and capabilities
+* Usage examples and CLI commands
+* Input parameters and output structure
+* Integrated tools and features
+* Configuration options and environment variables
+* Provider and container information
+* Current status and error logs
+
+## Agent Types
+
+Agents come in different types depending on how they interact with users. The agent type also determines how it's presented in the GUI.
+
+### Chat Agents
+
+Chat agents support live, conversational interactions. They're best for tasks requiring a back-and-forth dialogue. These agents use a chat-based interface in the GUI.
+
+### Hands-off Agents
+
+Hands-off agents are designed to run autonomously after receiving a single instruction. They don't need further input once started. In the GUI, these agents offer a streamlined experience focused on execution and results.
+
+
+# Environment Configuration
+Source: https://docs.beeai.dev/how-to/environment-configuration
+
+Learn how to configure LLM providers and environment variables
+
+Most agents require access to language models and other external services to function. BeeAI makes it easy to configure these connections once and share them across all your agents.
+
+## Quickstart Interactive Setup
+
+The fastest way to get started is with the interactive setup wizard:
+
+```bash
+beeai model setup
+```
+
+The setup wizard will then guide you through:
+
+* API Key entry (with validation)
+* Model selection (with recommendations)
+* Connection testing (to verify everything works)
+* Provider-specific options (like context window for Ollama)
+
+## Supported LLM Providers
+
+BeeAI supports a wide range of language model providers:
+
+### Cloud Providers
+
+* Anthropic Claude
+* Cerebras - has a free tier
+* Chutes - has a free tier
+* Cohere - has a free tier
+* DeepSeek
+* Google Gemini - has a free tier
+* Groq - has a free tier
+* IBM watsonx
+* Mistral - has a free tier
+* NVIDIA NIM
+* OpenAI
+* OpenRouter - has some free models
+* Perplexity
+* together.ai - has a free tier
+
+### Local Providers
+
+* **Ollama**
+* **Jan**
+
+### Custom Providers via LLM Gateway
+
+If you have a custom OpenAI-compatible API endpoint, you can configure it during the interactive setup via `beeai model setup` by selecting "Other (RITS, vLLM, ...)" and providing your API URL.
+
+BeeAI includes a built-in LLM gateway that provides a unified OpenAI-compatible API endpoint. This is useful when you want to:
+
+* Point existing agents to BeeAI instead of directly to LLM providers
+* Centrally manage API keys and provider configurations
+* Switch providers without reconfiguring individual agents
+
+After configuring BeeAI with a provider, the gateway is available at: [http://localhost:8333/api/v1/openai/chat/completions](http://localhost:8333/api/v1/openai/chat/completions)
+
+<Note>
+  This is a POST-only API endpoint for programmatic use. Use curl or OpenAI-compatible clients to interact with it.
+</Note>
+
+The gateway automatically handles:
+
+* Authentication with your configured provider
+* Provider-specific request/response formatting
+* Both streaming and non-streaming responses
+* Request validation and error responses
+
+<Important>
+  The gateway uses whatever LLM provider you've configured with `beeai model setup`. Configure your preferred provider first, then use the gateway endpoint in your applications.
+</Important>
+
+## Agent-Specific Variables
+
+Some agents require additional API keys for external services.
+
+Example variables that agents might declare:
+
+```bash
+# Search APIs
+beeai env add TAVILY_API_KEY=your-tavily-key
+beeai env add SERP_API_KEY=your-serpapi-key
+
+# Third-party services
+beeai env add GITHUB_TOKEN=your-github-token
+beeai env add DATABASE_URL=postgresql://user:pass@host:5432/db
+```
+
+<Important>
+  Agents can only access environment variables they explicitly declare. You can store any variables with `beeai env add`, but agents will only receive the ones they're configured to use.
+  Use `beeai agent info <agent-name>` to see exactly what variables each agent needs.
+</Important>
+
+## Manual Environment Management
+
+### Add Variables
+
+Set individual variables:
+
+```bash
+beeai env add LLM_MODEL=gpt-4o
+beeai env add LLM_API_KEY=sk-...
+beeai env add LLM_API_BASE=https://api.openai.com/v1
+```
+
+### View Current Configuration
+
+List all configured environment variables:
+
+```bash
+beeai env list
+```
+
+### Remove Variables
+
+Remove specific variables:
+
+```bash
+beeai env remove LLM_API_KEY
+beeai env remove LLM_MODEL LLM_API_BASE
+```
+
+
+# Import Agents
+Source: https://docs.beeai.dev/how-to/import-agents
+
+Learn how to import new agents to BeeAI
+
+BeeAI provides multiple ways to add agents to your platform. This guide explains each method and when to use them.
+
+## Prerequisite
+
+### Docker Setup
+
+Most import methods require Docker to be running:
+
+* **macOS:** Install Docker Desktop or Rancher Desktop
+* **Linux:** Install Docker Engine and QEMU
+* **Windows:** Install Docker Desktop
+
+## Quick Start
+
+Just want to get started? Try importing a ready-made agent:
+
+```bash
+beeai add https://github.com/i-am-bee/beeai-platform-agent-starter.git
+```
+
+## How It Works
+
+BeeAI discovers and runs agents automatically by using BeeAI SDK. When you add an agent:
+
+1. **Auto-discovery:** Agents running locally are automatically detected
+2. **Containerization:** Remote agents are built into Docker containers
+3. **Registration:** All agents appear in both CLI and web interface
+
+## Adding Agents
+
+### Local Development (Recommended for Development)
+
+When you build agents locally using the BeeAI SDK, BeeAI automatically discovers them:
+
+```bash
+# Start your agent server
+uv run my_agent.py
+
+# Your agent automatically appears in BeeAI
+beeai list  # Shows your local agent
+```
+
+Benefits:
+
+* Instant feedback during development
+* No build process needed
+* Changes reflected immediately
+
+Requirements:
+
+* Agent must be implement using BeeAI SDK
+* Must be running on accessible port
+
+### From GitHub Repositories
+
+Import agents directly from public GitHub repositories:
+
+```bash
+# Basic import
+beeai add "https://github.com/username/my-agent.git"
+
+# With specific version
+beeai add "https://github.com/username/my-agent.git#v1.0.0"
+
+# With specific branch
+beeai add "https://github.com/username/my-agent.git#develop"
+
+# From subdirectory
+beeai add "https://github.com/username/my-agent.git#:agents/my-agent"
+
+# Combined version and path
+beeai add "https://github.com/username/multi-agent-repo.git#v2.1.0:agents/specialized-agent"
+```
+
+Requirements:
+
+* Repository must contain a Dockerfile
+* Agent must be implemented using BeeAI SDK
+* Repository must be publicly accessible
+* Docker must be running locally
+
+### From Local Filesystem
+
+Build and add agents from your local machine:
+
+```bash
+# Add from current directory
+beeai add .
+
+# Add from specific directory
+beeai add /path/to/my-agent
+```
+
+**For advanced users:** If you need more control over the build process:
+
+```bash
+# Build only (for testing)
+beeai build /path/to/my-agent --no-import
+
+# Build with custom tag
+beeai build . --tag my-custom-agent:dev
+
+# Add the built image separately
+beeai add beeai.local/my-agent-hash:latest
+```
+
+Requirements:
+
+* Directory must contain a Dockerfile
+* Docker must be running locally
+
+### From Docker Images
+
+Add pre-built Docker images:
+
+```bash
+# From GitHub Container Registry
+beeai add ghcr.io/i-am-bee/beeai-platform/community/aider:latest
+
+# From Docker Hub
+beeai add myuser/my-agent:v1.0
+
+# From private registry
+beeai add registry.example.com/team/custom-agent:latest
+```
+
+## Managing Agents
+
+### Check Agent Status
+
+```bash
+beeai list
+```
+
+Shows all agents with their status, location, and any configuration issues.
+
+### Remove Agents
+
+```bash
+beeai remove <agent-name>
+
+# Alternative commands
+beeai uninstall <agent-name>
+beeai delete <agent-name>
+beeai rm <agent-name>
+```
+
+### Get Agent Details
+
+```bash
+beeai info <agent-name>
+```
+
+Shows documentation, capabilities, and configuration options.
+
+
+# Register MCP Servers
+Source: https://docs.beeai.dev/how-to/mcp
+
+Learn how to register MCP servers into the platform and create curated toolkits for agents to use
+
+## Prerequisites
+
+* [BeeAI Platform](/introduction/quickstart) installed
+* Arbitrary [MCP server](https://modelcontextprotocol.io/introduction) with tools served over [Streamable HTTP transport](https://modelcontextprotocol.io/docs/concepts/transports#streamable-http)
+
+<Tip>
+  You may use
+  [server-everything](https://www.npmjs.com/package/@modelcontextprotocol/server-everything)
+  to complete the tutorial.
+</Tip>
+
+<Tip>
+  If your server only supports `stdio` transport, use
+  [supergateway](https://github.com/supercorp-ai/supergateway) to wrap it.
+</Tip>
+
+## Register the MCP server
+
+Start by registering the MCP server into the Platform:
+
+```bash
+beeai mcp add <server-name> <server-url>
+```
+
+## List available tools
+
+List available MCP tools:
+
+<Note>
+  If you have multiple MCP servers registered, tools across all the servers will
+  be listed.
+</Note>
+
+```bash
+beeai mcp tools
+```
+
+## Create a toolkit
+
+Create a toolkit:
+
+```bash
+beeai mcp toolkit <tool-1> <tool-2> ...
+```
+
+Toolkit is just another MCP server containing the selected tools. It is served over Streamable HTTP.
+
+<Note>
+  Toolkits have an expiration. They are temporary resources meant to be used by
+  an agent for a single task.
+</Note>
+
+## Use the toolkit with your agent
+
+Grab the URL of the toolkit and give it to an agent. The agent can now use this URL with the MCP client to connect an use the toolkit.
+
+<Note>
+  We're working on a mechanism for agents to receive arbitrary MCP server as a
+  dependency injection over the agent protocol. Currently, the URL delivery must
+  be done out of bound.
+</Note>
+
+
+# Observe Agents
+Source: https://docs.beeai.dev/how-to/observe-agents
+
+Monitor, debug, and instrument your BeeAI agents
+
+BeeAI provides observability tools to monitor and debug your agents through logging, telemetry, and integration with external monitoring systems.
+
+## View Agent Logs
+
+Stream real-time logs from any running agent:
+
+```bash
+beeai logs <agent-name>
+```
+
+What you'll see:
+
+* Agent startup and initialization
+* Request processing steps
+* Error messages and stack traces
+* Container lifecycle events
+
+<Note>
+  Logs are only available for managed (containerized) agents that are currently
+  running.
+</Note>
+
+## Telemetry Collection
+
+BeeAI includes OpenTelemetry instrumentation to collect traces and metrics. Telemetry data helps with performance monitoring, error tracking, usage analytics, and debugging agent interactions.
+
+### Default Configuration
+
+By default, BeeAI sends telemetry to:
+
+* **Local Phoenix instance** (if running) for trace visualization
+
+The telemetry includes:
+
+* Platform version and runtime details
+* Agent execution traces
+
+## Integration with Phoenix
+
+[Arize Phoenix](https://phoenix.arize.com/) provides visualization for OpenTelemetry traces from your agents.
+
+<Warning>
+  **Important License Notice**: Phoenix is disabled by default in BeeAI. When
+  you enable Phoenix, be aware that Arize Phoenix is licensed under the Elastic
+  License v2 (ELv2), which has specific terms regarding commercial use and
+  distribution. By enabling Phoenix, you acknowledge that you are responsible
+  for ensuring compliance with the ELv2 license terms for your specific use
+  case. Please review the [Phoenix
+  license](https://github.com/Arize-ai/phoenix/blob/main/LICENSE) before
+  enabling this feature in production environments.
+</Warning>
+
+<Steps>
+  <Step title="Install Arize Phoenix">
+    Install and start Phoenix using `beeai platform start` command:
+
+    ```sh
+    beeai platform start --set phoenix.enabled=true
+    ```
+
+    You can run this even if your platform is already running without loosing data.
+  </Step>
+
+  <Step title="Check if Phoenix is running">
+    Spinning up phoenix can take a while, even after the `platform start` will report success.
+    Go to [http://localhost:6006](http://localhost:6006) and check if it's running. If not, please wait a few
+    minutes or check your internet connection.
+  </Step>
+
+  <Step title="Run Agent with Phoenix Configuration">
+    Execute the following command to run an example chat agent:
+
+    ```sh
+    beeai run chat "Hello"
+    ```
+  </Step>
+
+  <Step title="View Traces in Phoenix">
+    Go to [http://localhost:6006](http://localhost:6006) in your browser and open the **default** project.
+  </Step>
+</Steps>
+
+<Tip>
+  Want richer trace detail? Use the
+  [OpenInference](https://github.com/Arize-ai/openinference/) standard for
+  custom instrumentation.
+</Tip>
+
+## Instrumenting with OpenInference
+
+To enable full traceability of your BeeAI agents, you can instrument them using [OpenInference](https://github.com/Arize-ai/openinference). This guide walks you through the installation and setup process for both [Python](https://github.com/Arize-ai/openinference/tree/main?tab=readme-ov-file#libraries) and [JavaScript](https://github.com/Arize-ai/openinference/tree/main?tab=readme-ov-file#libraries-1) frameworks.
+
+<Warning>
+  This guide only covers frameworks officially supported by the OpenInference
+  ecosystem. If your framework isn't listed, instrumentation guidance is not
+  currently provided.
+</Warning>
+
+Before you begin, make sure the Phoenix server is running.
+
+<Tabs>
+  <Tab title="Python Intrumentation">
+    <Steps>
+      <Step title="Install required packages">
+        ```sh
+        pip install beeai-framework openinference-instrumentation-beeai
+        ```
+      </Step>
+
+      <Step title="Instrument the BeeAI Framework">
+        ```sh
+        from openinference.instrumentation.beeai import BeeAIInstrumentor
+
+        BeeAIInstrumentor().instrument()
+        ```
+      </Step>
+
+      <Step title="Use BeeAI as Usual">
+        You can now run your BeeAI agents as normal. Telemetry data will be captured and exported automatically.
+      </Step>
+    </Steps>
+
+    <Tip>
+      For advanced usage (e.g., running instrumentation outside the BeeAI
+      lifecycle), see: [OpenInference Instrumentation for
+      BeeAI](https://github.com/Arize-ai/openinference/tree/main/python/instrumentation/openinference-instrumentation-beeai)
+    </Tip>
+  </Tab>
+
+  <Tab title="JavaScript Instrumentation">
+    <Steps>
+      <Step title="Install required packages">
+        ```sh
+        npm install --save @arizeai/openinference-instrumentation-beeai beeai-framework
+        ```
+      </Step>
+
+      <Step title="Instrument the BeeAI Framework">
+        ```sh
+        import { BeeAIInstrumentation } from "@arizeai/openinference-instrumentation-beeai";
+        import * as beeaiFramework from "beeai-framework";
+
+        const beeAIInstrumentation = new BeeAIInstrumentation();
+        beeAIInstrumentation.manuallyInstrument(beeaiFramework);
+        ```
+      </Step>
+
+      <Step title="Use BeeAI as Usual">
+        You can now run your BeeAI agents as normal. Telemetry data will be captured and exported automatically.
+      </Step>
+    </Steps>
+
+    <Tip>
+      For advanced usage (e.g., running instrumentation outside the BeeAI
+      lifecycle), see: [OpenInference Instrumentation for
+      BeeAI](https://github.com/Arize-ai/openinference/tree/main/js/packages/openinference-instrumentation-beeai)
+    </Tip>
+  </Tab>
+</Tabs>
+
+
+# Run Agents
+Source: https://docs.beeai.dev/how-to/run-agents
+
+Learn how to run agents in BeeAI
+
+Once you've discovered agents and configured your environment, running them is simple.
+
+You can launch and interact with agents using the graphical interface or the command line. To open the GUI, run:
+
+```bash
+beeai ui
+```
+
+<Note>
+  Not all agents support GUI interaction.
+</Note>
+
+## Quickstart Examples
+
+<Accordion title="Chat Agent">
+  Start an interactive chat session:
+
+  ```bash
+  beeai run chat
+  ```
+
+  Or send a single message:
+
+  ```bash
+  beeai run chat "Hello! How can you help me today?"
+  ```
+</Accordion>
+
+<Accordion title="GPT Researcher">
+  ```bash
+  beeai run gpt_researcher "Research the latest developments in quantum computing"
+  ```
+</Accordion>
+
+<Accordion title="Aider - Code Assistant">
+  ```bash
+  beeai run aider "
+  Review this Python function and suggest improvements:
+
+  def calculate_fibonacci(n):
+      if n <= 1:
+          return n
+      return calculate_fibonacci(n-1) + calculate_fibonacci(n-2)
+  "
+  ```
+</Accordion>
+
+<Accordion title="Prompt Chaining: GPT Researcher -> Chat Agent">
+  ```bash
+  beeai run gpt_researcher "Latest developments in renewable energy storage" | beeai run chat "Summarize this research in 3 key bullet points"
+  ```
+</Accordion>
+
+## Input Options
+
+<Note>
+  Different agents may have different input expectations. Always refer to the agent’s documentation via `beeai info <agent-name>` for guidance.
+</Note>
+
+### Interactive Mode
+
+Opens a session where you can send multiple messages.
+
+```bash
+beeai run chat
+```
+
+### Direct Text Input
+
+Run an agent with a single message or prompt.
+
+```bash
+beeai run gpt_researcher "Research the latest developments in quantum computing"
+```
+
+### Multi-line Input
+
+Great for sharing code snippets.
+
+```bash
+beeai run aider "
+Review this Python function and suggest improvements:
+
+def calculate_fibonacci(n):
+    if n <= 1:
+        return n
+    return calculate_fibonacci(n-1) + calculate_fibonacci(n-2)
+"
+```
+
+### File Input
+
+Send the contents of a file as input to an agent.
+
+```bash
+beeai run chat < my_file.txt
+```
+
+### Pipe Between Agents
+
+Send output from one agent into another.
+
+```bash
+beeai run gpt_researcher "Latest developments in renewable energy storage" | beeai run chat "Summarize this research in 3 key bullet points"
+```
+
+## Output Handling
+
+### Save to File
+
+Save the agent’s output to a file:
+
+```bash
+beeai run chat "Write a technical blog post about how large language models work" > ~/post.md
+```
+
+### Append to File
+
+Append output to an existing file:
+
+```bash
+beeai run chat "Add a section on the challenges and limitations of large language models" >> ~/blog.md
+```
+
+<Tip>
+  Make sure the path points to an existing file.
+</Tip>
+
+
+# Share Agents
+Source: https://docs.beeai.dev/how-to/share-agents
+
+Learn how to share your agents with others using BeeAI
+
+Once you've [built an agent](/build-agents/hello-world), there are several ways to share it with others.
+
+<Note>
+  Projects must follow the structure defined by the [beeai-platform-agent-starter](https://github.com/i-am-bee/beeai-platform-agent-starter) template for proper sharing functionality.
+</Note>
+
+## Share via GitHub
+
+The easiest way to share your agent is by pushing it to a public GitHub repository.
+
+Share your repository URL:
+
+```bash
+# Share the main branch
+https://github.com/your-username/your-agent-repo
+
+# Share a specific version
+https://github.com/your-username/your-agent-repo#v1.0.0
+```
+
+Others can install your agent using the BeeAI CLI:
+
+```bash
+# Add from main branch (latest)
+beeai add "https://github.com/your-username/your-agent-repo"
+
+# Add specific version
+beeai add "https://github.com/your-username/your-agent-repo#v1.0.0"
+
+# Add with specific path (for monorepos)
+beeai add "https://github.com/your-username/monorepo#main:agents/my-agent"
+```
+
+<Tip>
+  **Versioning Tip**: Use Git tags like `v1.0.0`, `v1.1.0`, etc., to manage releases before sharing them. This will help
+  you prevent unwanted updates compared to always using latest main. You can upgrade agents
+  by deleting them with `beeai remove` and adding again with the new version.
+</Tip>
+
+## Share via Container Registry
+
+You can also share pre-built Docker images for even faster installation:
+
+```bash
+# GitHub Container Registry (public)
+beeai add ghcr.io/your-username/your-agent:latest
+beeai add ghcr.io/your-username/your-agent:v1.0.0
+
+# Private registries
+beeai add registry.yourcompany.com/team/agent:v2.1.0
+```
+
+<Note>
+  **Why Containers?** Pre-built images install instantly—they don’t need to be built on the user’s machine.
+</Note>
+
+<Note>
+  **CI/CD Ready**: The starter template includes a full GitHub Actions workflow to automate builds. See the [`build-agent.yaml`](https://github.com/i-am-bee/beeai-platform-agent-starter/blob/main/.github/workflows/build-agent.yaml) file for details.
+</Note>
+
+## Publish to the Community Catalog
+
+Want to make your agent discoverable by the entire BeeAI community? Add it to the communuity BeeAI catalog!
+
+To contribute:
+
+* Fork the [BeeAI Platform repository](https://github.com/i-am-bee/beeai-platform)
+* Add your agent to the [/agents/community](https://github.com/i-am-bee/beeai-platform/tree/main/agents/community) directory
+* Submit a pull request
+
+**Thank you for sharing your work!** 💛
+
+
+# Web Interface
+Source: https://docs.beeai.dev/how-to/web-interface
+
+User-friendly web interface designed for end users
+
+The BeeAI web interface is a minimalist GUI built for simplicity and ease of use. It’s designed with end users in mind - especially teams and business users who want to run AI agents without touching the command line or diving into technical details.
+
+## Getting Started
+
+Launch the web interface:
+
+```bash
+beeai ui
+```
+
+This opens your browser to [http://localhost:8334](http://localhost:8334) where you can browse and run available agents.
+
+## What You'll See
+
+### Agent Types
+
+1. **Chat Agents**: Conversational interfaces
+2. **Task Agents**: Single-purpose tools for specific jobs
+
+### What's Hidden
+
+The web interface only shows agents with proper user interfaces. Agents without UIs are hidden from the GUI but remain available through the command line.
+
+**Why?** This keeps the interface clean for business users while developers can still access everything via CLI during development.
+
+## Using the Interface
+
+1. **Browse Agents**: View available agents
+2. **Select an Agent**: Click to open its interface
+3. **Provide Input**: Interact with agents
+4. **Get Results**: View outputs and download files as needed
+
+## Q\&A
+
+**Q: Why don't I see all the agents from `beeai list`?**\
+A: The web interface only shows agents designed for end users. Developers can access all agents via CLI.
+
+**Q: How do I add an agent to the web interface?**\
+A: Agents need UI metadata to appear. See the [Build Agents](/how-tos/build-agents) guide for developers.
+
+
+# Quickstart
+Source: https://docs.beeai.dev/introduction/quickstart
+
+Installing and setting up local BeeAI on your computer
+
+BeeAI CLI can be used to quickly set up a local instance of the BeeAI platform, including a web interface for interacting with agents.
+
+**Pre-requisites:**
+
+* familiarity with running commands in terminal
+* API key for an LLM provider (OpenAI, Anthropic, Gemini, watsonx, ...)
+  * free API keys can be obtained from [OpenRouter](https://openrouter.ai/) or [Groq](https://groq.com/)
+  * alternatively, [Ollama](https://ollama.com/) can be used to run local LLMs, but this requires a very powerful computer
+* *(recommended)* fast internet connection (a few GB will be downloaded)
+
+<Tabs>
+  <Tab title="macOS">
+    <Steps>
+      <Step title="Install uv">
+        If you don't have `uv` installed, install it using one of the supported ways.
+
+        Open a terminal and run:
+
+        <Tabs>
+          <Tab title="Installation script (recommended)">
+            ```bash
+            curl -LsSf https://astral.sh/uv/install.sh | sh
+            ```
+          </Tab>
+
+          <Tab title="Homebrew">
+            ```bash
+            brew install uv
+            uv tool update-shell
+            ```
+          </Tab>
+        </Tabs>
+
+        After this, close the terminal and re-open it.
+      </Step>
+
+      <Step title="Install BeeAI">
+        ```bash
+        uv tool install beeai-cli
+        ```
+
+        <Info>
+          See bottom of this page for instructions on updating and uninstalling.
+        </Info>
+      </Step>
+
+      <Step title="Start the BeeAI platform">
+        ```bash
+        beeai platform start
+        ```
+
+        <Info>
+          This step downloads a few gigabytes of data, so it may take a while depending on your internet connection. Once started, the platform will continue running in the background until you stop it with `beeai platform stop` or shut down your computer.
+        </Info>
+      </Step>
+
+      <Step title="Configure an LLM provider">
+        If you don't already have an API key for an LLM provider, register for a free one on [OpenRouter](https://openrouter.ai/) or [Groq](https://groq.com/).
+
+        Run this command and follow the interactive prompts:
+
+        ```bash
+        beeai model setup
+        ```
+
+        <Info>
+          You can re-run this command anytime to change the LLM provider.
+        </Info>
+      </Step>
+
+      <Step title="Check that everything works">
+        ```bash
+        beeai run chat Hi!
+        ```
+
+        Starting up an agent for the first time may take a few minutes. If everything is successful, you should see a friendly greeting from the agent.
+      </Step>
+
+      <Step title="Try the web interface">
+        ```bash
+        beeai ui
+        ```
+
+        <Info>
+          The web UI is intentionally simplified for end-users who need basic agent interactions without CLI complexity. Think of the web UI as a deployment target for your agents, not your primary development environment.
+        </Info>
+      </Step>
+
+      <Step title="Get familiar with the CLI">
+        ```sh
+        # List all available agents
+        beeai list
+
+        # Run an agent interactively
+        beeai run chat
+
+        # Run an agent with direct input
+        beeai run chat "Hello! How are you?"
+
+        # Get agent details and parameters
+        beeai info chat
+
+        # View all CLI options
+        beeai --help
+        ```
+      </Step>
+
+      <Step title="Dive into BeeAI">
+        Explore the rest of the documentation to learn how to connect MCP servers, build your own agents, use document retrieval, and more! 🐝
+      </Step>
+    </Steps>
+  </Tab>
+
+  <Tab title="Linux">
+    <Steps>
+      <Step title="Install uv">
+        If you don't have `uv` installed, install it through one of the available ways:
+
+        <Tabs>
+          <Tab title="Installation script (recommended)">
+            Open a terminal and run:
+
+            ```bash
+            curl -LsSf https://astral.sh/uv/install.sh | sh
+            ```
+          </Tab>
+
+          <Tab title="Package manager">
+            Some Linux distributions package `uv`, but beware that some may include outdated versions.
+            Check the [Repology website](https://repology.org/project/uv/versions) to see if your distribution packages `uv`.
+            Alternatively, you may install `uv` using `pipx` or `cargo` according to the [official installation instructions](https://docs.astral.sh/uv/getting-started/installation/).
+            If in doubt, just use the installation script.
+
+            After installing `uv`, run this to update your PATH:
+
+            ```bash
+            uv tool update-shell
+            ```
+          </Tab>
+        </Tabs>
+
+        After this, close the terminal and re-open it.
+      </Step>
+
+      <Step title="Install QEMU">
+        <Tabs>
+          <Tab title="Debian/Ubuntu">
+            ```bash
+            sudo apt-get install qemu-system
+            ```
+          </Tab>
+
+          <Tab title="Fedora">
+            ```bash
+            sudo dnf install @virtualization
+            ```
+          </Tab>
+
+          <Tab title="Arch">
+            ```bash
+            sudo pacman -S qemu
+            ```
+          </Tab>
+
+          <Tab title="openSUSE">
+            ```bash
+            sudo zypper install qemu
+            ```
+          </Tab>
+
+          <Tab title="RHEL/CentOS">
+            ```bash
+            sudo yum install qemu-kvm
+            ```
+          </Tab>
+
+          <Tab title="Gentoo">
+            ```bash
+            sudo emerge --ask app-emulation/qemu
+            ```
+          </Tab>
+
+          <Tab title="Other">
+            Please refer to your distribution's package manager or the [official QEMU download page](https://www.qemu.org/download/) for installation instructions.
+          </Tab>
+        </Tabs>
+      </Step>
+
+      <Step title="Install BeeAI">
+        ```bash
+        uv tool install beeai-cli
+        ```
+
+        <Info>
+          See bottom of this page for instructions on updating and uninstalling.
+        </Info>
+      </Step>
+
+      <Step title="Start the BeeAI platform">
+        ```bash
+        beeai platform start
+        ```
+
+        <Info>
+          This step downloads a few gigabytes of data, so it may take a while depending on your internet connection. Once started, the platform will continue running in the background until you stop it with `beeai platform stop` or shut down your computer.
+        </Info>
+      </Step>
+
+      <Step title="Configure an LLM provider">
+        If you don't already have an API key for an LLM provider, register for a free one on [OpenRouter](https://openrouter.ai/) or [Groq](https://groq.com/).
+
+        Run this command and follow the interactive prompts:
+
+        ```bash
+        beeai model setup
+        ```
+
+        <Info>
+          You can re-run this command anytime to change the LLM provider.
+        </Info>
+      </Step>
+
+      <Step title="Check that everything works">
+        ```bash
+        beeai run chat Hi!
+        ```
+
+        Starting up an agent for the first time may take a few minutes. If everything is successful, you should see a friendly greeting from the agent.
+      </Step>
+
+      <Step title="Try the web interface">
+        ```bash
+        beeai ui
+        ```
+
+        <Info>
+          The web UI is intentionally simplified for end-users who need basic agent interactions without CLI complexity. Think of the web UI as a deployment target for your agents, not your primary development environment.
+        </Info>
+      </Step>
+
+      <Step title="Get familiar with the CLI">
+        ```sh
+        # List all available agents
+        beeai list
+
+        # Run an agent interactively
+        beeai run chat
+
+        # Run an agent with direct input
+        beeai run chat "Hello! How are you?"
+
+        # Get agent details and parameters
+        beeai info chat
+
+        # View all CLI options
+        beeai --help
+        ```
+      </Step>
+
+      <Step title="Dive into BeeAI">
+        Explore the rest of the documentation to learn how to connect MCP servers, build your own agents, use document retrieval, and more! 🐝
+      </Step>
+    </Steps>
+  </Tab>
+
+  <Tab title="Windows (Experimental)">
+    <Warning>
+      Windows / WSL support is currently experimental. We recommend running BeeAI on Linux or macOS instead.
+    </Warning>
+
+    <Info>
+      These steps guide you through installing BeeAI in PowerShell. If you wish, you may work in a WSL distribution instead. In that case, simply switch to the Linux instructions and skip installing QEMU.
+    </Info>
+
+    <Steps>
+      <Step title="Update Windows">
+        Ensure that you are using **Windows 11 22H2** or newer.
+      </Step>
+
+      <Step title="Install uv">
+        If you don't have `uv` installed, install it using one of the supported ways.
+
+        Open PowerShell and run:
+
+        <Tabs>
+          <Tab title="Installation script (recommended)">
+            ```bash
+            powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+            ```
+          </Tab>
+
+          <Tab title="Winget">
+            ```bash
+            winget install astral-sh.uv
+            uv tool update-shell
+            ```
+          </Tab>
+
+          <Tab title="Scoop">
+            ```bash
+            scoop install uv
+            uv tool update-shell
+            ```
+          </Tab>
+
+          <Tab title="Chocolatey">
+            ```bash
+            choco install uv
+            uv tool update-shell
+            ```
+          </Tab>
+        </Tabs>
+
+        After this, close the terminal and re-open it.
+      </Step>
+
+      <Step title="Install BeeAI">
+        ```bash
+        uv tool install beeai-cli
+        ```
+
+        <Info>
+          See bottom of this page for instructions on updating and uninstalling.
+        </Info>
+      </Step>
+
+      <Step title="Start the BeeAI platform">
+        ```bash
+        beeai platform start
+        ```
+
+        <Info>
+          This step downloads a few gigabytes of data, so it may take a while depending on your internet connection. Once started, the platform will continue running in the background until you stop it with `beeai platform stop` or shut down your computer.
+        </Info>
+      </Step>
+
+      <Step title="Configure an LLM provider">
+        If you don't already have an API key for an LLM provider, register for a free one on [OpenRouter](https://openrouter.ai/) or [Groq](https://groq.com/).
+
+        Run this command and follow the interactive prompts:
+
+        ```bash
+        beeai model setup
+        ```
+
+        <Info>
+          You can re-run this command anytime to change the LLM provider.
+        </Info>
+      </Step>
+
+      <Step title="Check that everything works">
+        ```bash
+        beeai run chat Hi!
+        ```
+
+        Starting up an agent for the first time may take a few minutes. If everything is successful, you should see a friendly greeting from the agent.
+      </Step>
+
+      <Step title="Try the web interface">
+        ```bash
+        beeai ui
+        ```
+
+        <Info>
+          The web UI is intentionally simplified for end-users who need basic agent interactions without CLI complexity. Think of the web UI as a deployment target for your agents, not your primary development environment.
+        </Info>
+      </Step>
+
+      <Step title="Get familiar with the CLI">
+        ```sh
+        # List all available agents
+        beeai list
+
+        # Run an agent interactively
+        beeai run chat
+
+        # Run an agent with direct input
+        beeai run chat "Hello! How are you?"
+
+        # Get agent details and parameters
+        beeai info chat
+
+        # View all CLI options
+        beeai --help
+        ```
+      </Step>
+
+      <Step title="Dive into BeeAI">
+        Explore the rest of the documentation to learn how to connect MCP servers, build your own agents, use document retrieval, and more! 🐝
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
+
+<AccordionGroup>
+  <Accordion title="Updating">
+    <Steps>
+      <Step title="Upgrade BeeAI">
+        ```bash
+        uv tool install --force beeai-cli
+        ```
+
+        <Tip>
+          We recommend this command over `uv tool upgrade beeai-cli` to ensure that you always get the latest version. `uv tool upgrade` respects the original version constraint -- e.g. if you installed with `uv tool install beeai-cli==0.3.2`, `uv tool upgrade beeai-cli` will never upgrade to `0.3.3` or later.
+        </Tip>
+      </Step>
+
+      <Step title="Restart the BeeAI platform">
+        ```bash
+        beeai platform start
+        ```
+
+        <Info>
+          This step downloads a few gigabytes of data, so it may take a while depending on your internet connection. Once started, the platform will continue running in the background until you stop it with `beeai platform stop` or shut down your computer.
+        </Info>
+      </Step>
+
+      <Step title="Done!">
+        BeeAI platform is updated.
+      </Step>
+    </Steps>
+  </Accordion>
+
+  <Accordion title="Uninstalling">
+    <Steps>
+      <Step title="Remove the BeeAI platform instance">
+        ```bash
+        beeai platform delete
+        ```
+      </Step>
+
+      <Step title="Uninstall the BeeAI platform">
+        ```bash
+        uv tool uninstall beeai-cli
+        ```
+      </Step>
+
+      <Step title="Done!">
+        BeeAI platform is now fully removed.
+      </Step>
+    </Steps>
+  </Accordion>
+</AccordionGroup>
+
+
+# Welcome to BeeAI
+Source: https://docs.beeai.dev/introduction/welcome
+
+Discover, run, and share agents from any framework
+
+<Info>
+  ### 🚀 IMPORTANT UPDATE
+
+  ACP is now part of A2A under the Linux Foundation!
+
+  👉 [Learn more](https://github.com/orgs/i-am-bee/discussions/5)  |  🛠️ [Migration Guide](/community-and-support/acp-a2a-migration-guide)
+</Info>
+
+BeeAI is an open-source platform that makes it easy to **discover**, **run**, and **share** AI agents across frameworks. Built on the [Agent2Agent Protocol (A2A)](https://github.com/a2aproject/A2A) and hosted by the Linux Foundation, BeeAI bridges the gap between different agent ecosystems.
+
+## The Problem BeeAI Solves
+
+Teams building AI agents often run into three main challenges:
+
+* **Framework Fragmentation:** Multiple frameworks lead to silos and duplicated work.
+* **Deployment Complexity:** Each agent needs its own setup, slowing down scale.
+* **Discovery Challenges:** Finding and reusing agents is hard without a central hub.
+
+BeeAI provides a standardized platform to discover, run, and share agents from any framework.
+
+## Key Features
+
+| Feature                       | What it does                                                                                                             |
+| :---------------------------- | :----------------------------------------------------------------------------------------------------------------------- |
+| **Instant web interface**     | Spin up a shareable front-end in minutes—focus on your agent, not UI frameworks.                                         |
+| **Complete infrastructure**   | Deploy your agent container instantly, with database, storage, scaling, monitoring, plus MCP gateway and RAG services.   |
+| **Framework-agnostic**        | Combine agents from BeeAI, LangChain, CrewAI, and more using A2A.                                                        |
+| **Multi-provider playground** | Test agents across OpenAI, Anthropic, Gemini, IBM watsonx, Ollama, and others to compare performance and cost instantly. |
+
+## How BeeAI Works
+
+Run BeeAI locally, and your agents connect to the platform for discovery, testing, and sharing through a simple web interface.
+
+You get:
+
+* Access to ready-to-use agents from our official catalog
+* Easy testing across multiple LLM providers
+* Framework-agnostic development via the BeeAI SDK powered by A2A
+* Ready-made web interfaces for all your agents
+
+<Note>
+  Want to deploy BeeAI for your team? BeeAI can also run as a hosted platform with full Kubernetes infrastructure. Learn more about [platform deployment](/deployment/overview).
+</Note>
+
+## Get Started
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/introduction/quickstart">
+    Get up and running quickly
+  </Card>
+
+  <Card title="Agent Library" icon="robot" href="https://beeai.dev/agents">
+    Explore the collection of ready-to-use agents
+  </Card>
+
+  <Card title="Architecture" icon="sitemap" href="/concepts/architecture">
+    Learn about the core concepts and architecture
+  </Card>
+
+  <Card title="Agent2Agent (A2A) Protocol" icon="network-wired" href="https://agentcommunicationprotocol.dev">
+    See how BeeAI connects diverse agent frameworks seamlessly
+  </Card>
+</CardGroup>
+
+## Join the Community
+
+<CardGroup cols={3}>
+  <Card title="Discord" icon="discord" href="https://discord.gg/NradeA6ZNF">
+    Support
+  </Card>
+
+  <Card title="Bluesky" icon="bluesky" href="https://bsky.app/profile/beeaiagents.bsky.social">
+    Announcements
+  </Card>
+
+  <Card title="Youtube" icon="youtube" href="https://youtube.com/@BeeAIAgents">
+    Tutorials
+  </Card>
+</CardGroup>
+
+
