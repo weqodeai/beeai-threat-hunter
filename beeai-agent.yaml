@@ -1,0 +1,34 @@
+# BeeAI Agent Configuration
+name: threat-hunter-test
+version: 1.0.0
+description: BeeAI Threat Hunter Test Agent for platform integration testing
+author: BeeAI Labs Team
+license: Apache 2.0
+
+# Agent metadata
+agent:
+  name: "Threat Hunter Test Agent"
+  description: "Test agent for BeeAI platform integration verification. Provides system health checks, connection tests, and configuration validation."
+  version: "1.0.0"
+  
+# Docker configuration  
+docker:
+  dockerfile: Dockerfile
+  context: .
+  
+# Python project
+python:
+  entry_point: "beeai_threat_hunter.agents.test_agent:serve"
+  requirements: "pyproject.toml"
+
+# Skills and capabilities
+skills:
+  - id: "threat_hunter_test"
+    name: "System Testing and Integration"
+    description: "System health checks, connection tests, and configuration validation"
+    tags: ["testing", "integration", "system-health"]
+    examples:
+      - "test connection"
+      - "check system status" 
+      - "validate mindsdb configuration"
+      - "show help"
